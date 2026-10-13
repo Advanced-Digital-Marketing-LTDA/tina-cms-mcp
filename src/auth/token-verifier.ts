@@ -19,7 +19,7 @@ export async function createTokenVerifier(config: ServiceConfig): Promise<Access
   let metadata: Discovery;
   try {
     const discoveryUrl = `${config.issuer.replace(/\/$/, "")}/.well-known/openid-configuration`;
-    const response = await fetch(discoveryUrl, { headers: { accept: "application/json" } });
+    const response = await fetch(discoveryUrl);
     if (!response.ok) throw new Error("discovery unavailable");
     metadata = await response.json() as Discovery;
   } catch {

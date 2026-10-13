@@ -47,6 +47,7 @@ describe("authenticated stateless Streamable HTTP", () => {
       resource: "https://mcp.example.test/mcp",
       authorization_servers: [expect.stringMatching(/^http:\/\//)],
       scopes_supported: ["posts:read", "posts:write"],
+      bearer_methods_supported: ["header"],
     });
   });
 

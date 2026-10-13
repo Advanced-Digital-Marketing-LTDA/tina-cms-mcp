@@ -1,5 +1,8 @@
+import { Client } from "@modelcontextprotocol/client";
+import { InMemoryTransport } from "@modelcontextprotocol/server";
 import { describe, expect, it, vi } from "vitest";
-import { PostError } from "../../src/domain/errors.js";
+import { PostError, ToolError } from "../../src/domain/errors.js";
+import { createMcpServer } from "../../src/mcp/server.js";
 import type { PostProvider } from "../../src/providers/post-provider.js";
 import { ProviderRegistry } from "../../src/providers/provider-registry.js";
 import { syntheticPosts } from "../fixtures/synthetic-posts.js";
@@ -14,12 +17,24 @@ describe("post MCP tools", () => {
     const provider = new InMemoryPostProvider(syntheticPosts);
     const result = await callTool(new ProviderRegistry(provider), principal, "list_posts", { limit: 1 });
 
-    expect(result.isError).not.toBe(true);
+    expect(result.isError).toBeUndefined();
     expect(result.structuredContent).toMatchObject({
       items: [{ id: "fixture-001", title: "Fabricated draft one" }],
       nextCursor: expect.any(String),
     });
     expect(JSON.stringify(result.structuredContent)).not.toContain("bodyMarkdown");
+  });
+
+  it("forwards optional status and cursor while using the default page size", async () => {
+    const provider = {
+      list: vi.fn<PostProvider["list"]>().mockResolvedValue({ items: [], nextCursor: null }),
+    } as unknown as PostProvider;
+    const result = await callTool(new ProviderRegistry(provider), principal, "list_posts", {
+      status: "published",
+      cursor: "cursor-1",
+    });
+    expect(result.isError).not.toBe(true);
+    expect(provider.list).toHaveBeenCalledWith({ status: "published", limit: 20, cursor: "cursor-1" });
   });
 
   it("gets a complete post by stable identifier", async () => {
@@ -62,6 +77,7 @@ describe("post MCP tools", () => {
       status: "draft",
       version: "1",
     });
+    expect(result.content).toEqual([{ type: "text", text: JSON.stringify(result.structuredContent) }]);
   });
 
   it("updates a draft only when the returned version token matches", async () => {
@@ -100,7 +116,8 @@ describe("post MCP tools", () => {
       { id: "fixture-001", status: "published" },
     );
 
-    expect(result).toMatchObject({ isError: true, structuredContent: { code: "VALIDATION" } });
+    expect(result).toMatchObject({ isError: true, structuredContent: { code: "VALIDATION", message: expect.stringContaining("status") } });
+    expect(result.content[0]).toMatchObject({ text: expect.stringContaining("VALIDATION:") });
   });
 
   it("rejects invalid slugs with a structured VALIDATION error", async () => {
@@ -111,7 +128,7 @@ describe("post MCP tools", () => {
       { title: "Bad slug", slug: "Not a slug", bodyMarkdown: "Synthetic." },
     );
 
-    expect(result).toMatchObject({ isError: true, structuredContent: { code: "VALIDATION" } });
+    expect(result).toMatchObject({ isError: true, structuredContent: { code: "VALIDATION", message: expect.stringContaining("slug") } });
   });
 
   it.each([
@@ -182,7 +199,7 @@ describe("post MCP tools", () => {
       { id: "fixture-001", expectedVersion: "1", patch: {} },
     );
 
-    expect(result).toMatchObject({ isError: true, structuredContent: { code: "VALIDATION" } });
+    expect(result).toMatchObject({ isError: true, structuredContent: { code: "VALIDATION", message: expect.stringContaining("At least one editable field is required") } });
   });
 
   it.each(["status", "publishedAt", "updatedAt"])(
@@ -256,7 +273,8 @@ describe("post MCP tools", () => {
     );
     expect(unavailable).toMatchObject({
       isError: true,
-      structuredContent: { code: "BACKEND_UNAVAILABLE" },
+      structuredContent: { code: "BACKEND_UNAVAILABLE", message: "The content provider is unavailable" },
+      content: [{ text: "BACKEND_UNAVAILABLE: The content provider is unavailable" }],
     });
 
     const unknownFailure = {
@@ -273,5 +291,79 @@ describe("post MCP tools", () => {
       structuredContent: { code: "BACKEND_UNAVAILABLE" },
     });
     expect(JSON.stringify(masked)).not.toContain("Internal detail");
+  });
+
+  it.each([
+    ["NOT_FOUND", new PostError("NOT_FOUND", "private provider detail"), "Post not found"],
+    ["CONFLICT", new PostError("CONFLICT", "private provider detail"), "The post could not be changed because of a conflict"],
+    ["BACKEND_UNAVAILABLE", new PostError("BACKEND_UNAVAILABLE", "private provider detail"), "The content provider is unavailable"],
+    ["FORBIDDEN", new ToolError("FORBIDDEN", "Scope denied"), "Scope denied"],
+  ] as const)("maps a typed %s error without leaking provider details", async (code, error, message) => {
+    const provider = {
+      list: vi.fn<PostProvider["list"]>().mockRejectedValue(error),
+    } as unknown as PostProvider;
+    const result = await callTool(new ProviderRegistry(provider), principal, "list_posts", {});
+    expect(result).toMatchObject({ isError: true, structuredContent: { code, message } });
+    if (error instanceof PostError) {
+      expect(error.name).toBe("PostError");
+      expect(JSON.stringify(result)).not.toContain("private provider detail");
+    } else {
+      expect(error.name).toBe("ToolError");
+    }
+  });
+
+  it("omits absent optional draft fields from the provider input", async () => {
+    const provider = {
+      createDraft: vi.fn<PostProvider["createDraft"]>().mockResolvedValue({
+        id: "synthetic-optional", version: "1", title: "Optional fields", slug: "optional-fields", bodyMarkdown: "", status: "draft",
+      }),
+    } as unknown as PostProvider;
+    await callTool(new ProviderRegistry(provider), principal, "create_post", {
+      title: "Optional fields", slug: "optional-fields", bodyMarkdown: "",
+    });
+    expect(provider.createDraft).toHaveBeenCalledWith({ title: "Optional fields", slug: "optional-fields", bodyMarkdown: "" });
+  });
+
+  it("normalizes a title and accepts fields at their documented maximum lengths", async () => {
+    const provider = new InMemoryPostProvider();
+    const result = await callTool(new ProviderRegistry(provider), principal, "create_post", {
+      title: `  ${"x".repeat(158)}  `,
+      slug: "valid-boundary",
+      bodyMarkdown: "x".repeat(100_000),
+      summary: "s".repeat(300),
+      tags: Array.from({ length: 20 }, () => "t".repeat(40)),
+    });
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toMatchObject({ title: "x".repeat(158), status: "draft" });
+  });
+
+  it("rejects malformed slugs with a valid prefix followed by punctuation", async () => {
+    const result = await callTool(new ProviderRegistry(new InMemoryPostProvider()), principal, "create_post", {
+      title: "Bad suffix", slug: "valid-prefix!", bodyMarkdown: "Synthetic.",
+    });
+    expect(result).toMatchObject({ isError: true, structuredContent: { code: "VALIDATION" } });
+  });
+
+  it("publishes four documented JSON schemas with no publication tool", async () => {
+    const server = createMcpServer(new ProviderRegistry(new InMemoryPostProvider()), principal);
+    const client = new Client({ name: "synthetic-schema-client", version: "1.0.0" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    try {
+      const tools = (await client.listTools()).tools;
+      expect(tools.map((tool) => tool.name).sort()).toEqual(["create_post", "get_post", "list_posts", "update_post"]);
+      for (const tool of tools) {
+        expect(tool.description?.length).toBeGreaterThan(10);
+        expect(Object.keys(tool.inputSchema.properties ?? {}).length).toBeGreaterThan(0);
+      }
+      expect(tools.find((tool) => tool.name === "list_posts")?.inputSchema.properties).toHaveProperty("limit");
+      expect(tools.find((tool) => tool.name === "get_post")?.inputSchema.properties).toHaveProperty("id");
+      expect(tools.find((tool) => tool.name === "create_post")?.inputSchema.properties).toHaveProperty("bodyMarkdown");
+      expect(tools.find((tool) => tool.name === "update_post")?.inputSchema.properties).toHaveProperty("patch");
+    } finally {
+      await client.close();
+      await server.close();
+    }
   });
 });

@@ -6,7 +6,10 @@ export default {
     configFile: "vitest.config.ts",
     related: false,
   },
-  coverageAnalysis: "perTest",
+  // The Vitest runner's per-test isolation cannot reliably attribute imported
+  // TypeScript modules in our HTTP/auth boundaries. Run the full suite for each
+  // mutant so covered changes are always evaluated by the actual contracts.
+  coverageAnalysis: "all",
   mutate: [
     "src/config.ts",
     "src/domain/**/*.ts",
