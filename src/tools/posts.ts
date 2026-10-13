@@ -51,11 +51,14 @@ const updateInput = z
   })
   .strict();
 
-// These outer schemas let Zod validate the JSON-RPC object's basic shape while
-// passing unknown keys through so the handler can return the stable VALIDATION
-// tool error instead of an SDK-level, non-structured parameter error.
+// These outer schemas publish supported constraints to MCP clients while
+// passing unknown keys through so handlers can return stable VALIDATION errors.
 const listToolSchema = z
-  .object({ status: z.string().optional(), limit: z.number().optional(), cursor: z.string().optional() })
+  .object({
+    status: statusSchema.optional(),
+    limit: z.number().int().min(1).max(100).optional(),
+    cursor: z.string().min(1).max(512).optional(),
+  })
   .passthrough();
 const getToolSchema = z.object({ id: z.string() }).passthrough();
 const createToolSchema = z

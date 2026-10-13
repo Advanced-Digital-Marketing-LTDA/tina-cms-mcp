@@ -174,7 +174,7 @@ describe("post MCP tools", () => {
     expect(result).toMatchObject({ isError: true, structuredContent: { code: "VALIDATION" } });
   });
 
-  it("rejects list limits outside 1 through 100", async () => {
+  it("rejects list limits outside 1 through 100 at the declared tool boundary", async () => {
     const result = await callTool(
       new ProviderRegistry(new InMemoryPostProvider(syntheticPosts)),
       principal,
@@ -182,10 +182,11 @@ describe("post MCP tools", () => {
       { limit: 101 },
     );
 
-    expect(result).toMatchObject({ isError: true, structuredContent: { code: "VALIDATION" } });
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toBeUndefined();
   });
 
-  it("rejects an unsupported status filter with a structured VALIDATION error", async () => {
+  it("rejects an unsupported status at the declared tool boundary", async () => {
     const result = await callTool(
       new ProviderRegistry(new InMemoryPostProvider(syntheticPosts)),
       principal,
@@ -193,7 +194,8 @@ describe("post MCP tools", () => {
       { status: "scheduled", limit: 10 },
     );
 
-    expect(result).toMatchObject({ isError: true, structuredContent: { code: "VALIDATION" } });
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toBeUndefined();
   });
 
   it("rejects a missing expected version at the declared tool boundary", async () => {
@@ -375,6 +377,9 @@ describe("post MCP tools", () => {
         expect(Object.keys(tool.inputSchema.properties ?? {}).length).toBeGreaterThan(0);
       }
       expect(tools.find((tool) => tool.name === "list_posts")?.inputSchema.properties).toHaveProperty("limit");
+      const listSchema = tools.find((tool) => tool.name === "list_posts")?.inputSchema.properties;
+      expect(listSchema?.status).toMatchObject({ enum: ["draft", "published", "archived"] });
+      expect(listSchema?.limit).toMatchObject({ type: "integer", minimum: 1, maximum: 100 });
       expect(tools.find((tool) => tool.name === "get_post")?.inputSchema.properties).toHaveProperty("id");
       expect(tools.find((tool) => tool.name === "create_post")?.inputSchema.properties).toHaveProperty("bodyMarkdown");
       expect(tools.find((tool) => tool.name === "update_post")?.inputSchema.properties).toHaveProperty("patch");
