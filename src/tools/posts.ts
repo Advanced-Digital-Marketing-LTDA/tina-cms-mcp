@@ -51,8 +51,9 @@ const updateInput = z
   })
   .strict();
 
-// These outer schemas publish supported constraints to MCP clients while
-// passing unknown keys through so handlers can return stable VALIDATION errors.
+// These schemas publish supported constraints to MCP clients. The tool schemas
+// pass unknown top-level keys through to handlers; update_post validates its
+// nested patch at the MCP boundary, so patch schema errors are unstructured.
 const listToolSchema = z
   .object({
     status: statusSchema.optional(),
