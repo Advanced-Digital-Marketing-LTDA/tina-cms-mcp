@@ -1,5 +1,6 @@
 import { createMcpHandler } from "@modelcontextprotocol/server";
 import { createServer, type Server } from "node:http";
+import { Readable } from "node:stream";
 import type { ServiceConfig } from "../config.js";
 import { AuthError, type AccessTokenVerifier } from "../auth/token-verifier.js";
 import { resourceMetadata, resourceMetadataUrl } from "../auth/resource-metadata.js";
@@ -8,7 +9,11 @@ import { createMcpServer } from "../mcp/server.js";
 
 const maxBodyBytes = 1_048_576;
 
-async function toWebRequest(req: import("node:http").IncomingMessage): Promise<Request> {
+class RequestBodyTooLargeError extends Error {}
+
+type RequestHead = { url: URL; headers: Headers; method: string };
+
+function getRequestHead(req: import("node:http").IncomingMessage): RequestHead {
   const host = req.headers.host ?? "localhost";
   const url = new URL(req.url ?? "/", `http://${host}`);
   const headers = new Headers();
@@ -17,16 +22,23 @@ async function toWebRequest(req: import("node:http").IncomingMessage): Promise<R
     else if (value !== undefined) headers.set(key, value);
   }
   const method = req.method ?? "GET";
-  if (method === "GET" || method === "HEAD") return new Request(url, { method, headers });
-  const chunks: Buffer[] = [];
-  let total = 0;
-  for await (const chunk of req) {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-    total += buffer.length;
-    if (total > maxBodyBytes) throw new Error("Request body too large");
-    chunks.push(buffer);
+  return { url, headers, method };
+}
+
+function toWebRequest(head: RequestHead, req: import("node:http").IncomingMessage): Request {
+  if (head.method === "GET" || head.method === "HEAD") {
+    return new Request(head.url, { method: head.method, headers: head.headers });
   }
-  return new Request(url, { method, headers, body: Buffer.concat(chunks) });
+  const source = Readable.toWeb(req) as ReadableStream<Uint8Array>;
+  let total = 0;
+  const body = source.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      total += chunk.byteLength;
+      if (total > maxBodyBytes) throw new RequestBodyTooLargeError("Request body too large");
+      controller.enqueue(chunk);
+    },
+  }));
+  return new Request(head.url, { method: head.method, headers: head.headers, body, duplex: "half" } as RequestInit & { duplex: "half" });
 }
 
 async function writeResponse(res: import("node:http").ServerResponse, response: Response): Promise<void> {
@@ -58,19 +70,29 @@ export function createHttpServer(
   const metadataUrl = resourceMetadataUrl(config);
 
   return createServer(async (nodeReq, nodeRes) => {
+    let corsHeaders: Record<string, string> = {};
     try {
-      const request = await toWebRequest(nodeReq);
-      const url = new URL(request.url);
-      if (request.method === "OPTIONS") {
-        const origin = request.headers.get("origin");
+      const head = getRequestHead(nodeReq);
+      const { url, headers, method } = head;
+      const origin = headers.get("origin");
+      const discardBody = () => {
+        if (method !== "GET" && method !== "HEAD") nodeReq.resume();
+      };
+      const respondEarly = async (response: Response) => {
+        discardBody();
+        await writeResponse(nodeRes, response);
+      };
+
+      if (method === "OPTIONS") {
         if (origin && !config.allowedOrigins.includes(origin)) {
-          await writeResponse(nodeRes, json(403, { error: "origin_not_allowed" }));
+          await respondEarly(json(403, { error: "origin_not_allowed" }));
           return;
         }
-        await writeResponse(nodeRes, new Response(null, { status: 204, headers: origin ? {
+        await respondEarly(new Response(null, { status: 204, headers: origin ? {
           "access-control-allow-origin": origin,
           "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
           "access-control-allow-headers": "authorization, content-type, mcp-protocol-version, mcp-session-id",
+          "access-control-expose-headers": "www-authenticate, mcp-session-id, mcp-protocol-version",
           "access-control-max-age": "600",
           vary: "Origin",
         } : {} }));
@@ -78,22 +100,26 @@ export function createHttpServer(
       }
 
       if (url.pathname === new URL(metadataUrl).pathname || url.pathname === "/.well-known/oauth-protected-resource") {
-        await writeResponse(nodeRes, request.method === "GET" ? json(200, resourceMetadata(config), { "access-control-allow-origin": "*" }) : json(405, { error: "method_not_allowed" }, { allow: "GET" }));
+        await respondEarly(method === "GET" ? json(200, resourceMetadata(config), { "access-control-allow-origin": "*" }) : json(405, { error: "method_not_allowed" }, { allow: "GET" }));
         return;
       }
       if (url.pathname !== config.mcpPath) {
-        await writeResponse(nodeRes, json(404, { error: "not_found" }));
+        await respondEarly(json(404, { error: "not_found" }));
         return;
       }
-      const origin = request.headers.get("origin");
       if (origin && !config.allowedOrigins.includes(origin)) {
-        await writeResponse(nodeRes, json(403, { error: "origin_not_allowed" }));
+        await respondEarly(json(403, { error: "origin_not_allowed" }));
         return;
       }
-      const authorization = request.headers.get("authorization") ?? "";
+      corsHeaders = origin ? {
+        "access-control-allow-origin": origin,
+        "access-control-expose-headers": "www-authenticate, mcp-session-id, mcp-protocol-version",
+        vary: "Origin",
+      } : {};
+      const authorization = headers.get("authorization") ?? "";
       const match = /^Bearer ([^\s]+)$/i.exec(authorization);
       if (!match) {
-        await writeResponse(nodeRes, json(401, { error: "invalid_token" }, { "www-authenticate": `Bearer resource_metadata="${metadataUrl}"` }));
+        await respondEarly(json(401, { error: "invalid_token" }, { ...corsHeaders, "www-authenticate": `Bearer resource_metadata="${metadataUrl}"` }));
         return;
       }
       let verified: Awaited<ReturnType<AccessTokenVerifier["verify"]>>;
@@ -101,9 +127,15 @@ export function createHttpServer(
         verified = await verifier.verify(match[1]!);
       } catch (error) {
         if (!(error instanceof AuthError)) throw error;
-        await writeResponse(nodeRes, json(401, { error: "invalid_token" }, { "www-authenticate": `Bearer error="invalid_token", resource_metadata="${metadataUrl}"` }));
+        await respondEarly(json(401, { error: "invalid_token" }, { ...corsHeaders, "www-authenticate": `Bearer error="invalid_token", resource_metadata="${metadataUrl}"` }));
         return;
       }
+      const contentLength = headers.get("content-length");
+      if (contentLength && Number(contentLength) > maxBodyBytes) {
+        await respondEarly(json(413, { error: "request_too_large" }, corsHeaders));
+        return;
+      }
+      const request = toWebRequest(head, nodeReq);
       const authInfo = {
         token: match[1]!,
         clientId: verified.subject,
@@ -113,14 +145,13 @@ export function createHttpServer(
         extra: { subject: verified.subject },
       };
       const result = await mcp.fetch(request, { authInfo });
-      if (origin) {
-        result.headers.set("access-control-allow-origin", origin);
-        result.headers.set("vary", "Origin");
+      for (const [name, value] of Object.entries(corsHeaders)) {
+        result.headers.set(name, value);
       }
       await writeResponse(nodeRes, result);
     } catch (error) {
-      const status = error instanceof Error && error.message === "Request body too large" ? 413 : 500;
-      await writeResponse(nodeRes, json(status, { error: status === 413 ? "request_too_large" : "internal_error" }));
+      const status = error instanceof RequestBodyTooLargeError ? 413 : 500;
+      await writeResponse(nodeRes, json(status, { error: status === 413 ? "request_too_large" : "internal_error" }, corsHeaders));
     }
   });
 }

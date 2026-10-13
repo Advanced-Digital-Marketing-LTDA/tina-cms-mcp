@@ -26,6 +26,15 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ ...validEnv, NODE_ENV: "production" })).toThrow("AUTH_ISSUER must be a secure URL");
   });
 
+  it("allows test-mode HTTP endpoints only on loopback hosts", () => {
+    expect(() => loadConfig({ ...validEnv, AUTH_ISSUER: "http://issuer.example.test" })).toThrowError(
+      expect.objectContaining({ code: "INVALID_CONFIGURATION" }),
+    );
+    expect(() => loadConfig({ ...validEnv, ALLOWED_ORIGINS: "http://browser.example.test" })).toThrowError(
+      expect.objectContaining({ code: "INVALID_CONFIGURATION" }),
+    );
+  });
+
   it("rejects an invalid port", () => {
     expect(() => loadConfig({ ...validEnv, PORT: "70000" })).toThrow("PORT must be an integer between 1 and 65535");
   });

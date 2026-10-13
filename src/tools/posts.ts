@@ -70,7 +70,7 @@ const createToolSchema = z
 const updateToolSchema = z
   .object({
     id: z.string(),
-    expectedVersion: z.string().optional().describe("Required concurrency version from a previous read"),
+    expectedVersion: z.string().describe("Required concurrency version from a previous read"),
     patch: z.record(z.string(), z.unknown()),
   })
   .passthrough();

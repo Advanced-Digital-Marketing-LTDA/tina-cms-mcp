@@ -1,5 +1,6 @@
 import { Client } from "@modelcontextprotocol/client";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import { request as httpRequest } from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
 import { createTokenVerifier } from "../../src/auth/token-verifier.js";
 import { createHttpServer } from "../../src/http/app.js";
@@ -37,6 +38,96 @@ describe("authenticated stateless Streamable HTTP", () => {
     expect(missing.headers.get("www-authenticate")).toContain("resource_metadata=");
     const invalid = await fetch(`${baseUrl}/mcp`, { method: "POST", headers: { authorization: "Bearer invalid" } });
     expect(invalid.status).toBe(401);
+  });
+
+  it("exposes OAuth challenge and MCP headers to an allowed browser Origin", async () => {
+    const allowedOrigin = "https://allowed.example.test";
+    const { baseUrl, issuer } = await setup([allowedOrigin]);
+    const unauthenticated = await fetch(`${baseUrl}/mcp`, {
+      method: "POST",
+      headers: { origin: allowedOrigin },
+    });
+    expect(unauthenticated.status).toBe(401);
+    expect(unauthenticated.headers.get("access-control-allow-origin")).toBe(allowedOrigin);
+    expect(unauthenticated.headers.get("access-control-expose-headers")).toContain("www-authenticate");
+    expect(unauthenticated.headers.get("www-authenticate")).toContain("resource_metadata=");
+    const invalidToken = await fetch(`${baseUrl}/mcp`, {
+      method: "POST",
+      headers: { origin: allowedOrigin, authorization: "Bearer invalid" },
+    });
+    expect(invalidToken.status).toBe(401);
+    expect(invalidToken.headers.get("access-control-allow-origin")).toBe(allowedOrigin);
+    expect(invalidToken.headers.get("www-authenticate")).toContain("error=\"invalid_token\"");
+
+    const initialized = await fetch(`${baseUrl}/mcp`, {
+      method: "POST",
+      headers: {
+        origin: allowedOrigin,
+        authorization: `Bearer ${await issuer.sign()}`,
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+        "mcp-protocol-version": "2025-03-26",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "test", version: "1" } },
+      }),
+    });
+    expect(initialized.status).toBe(200);
+    expect(initialized.headers.get("access-control-allow-origin")).toBe(allowedOrigin);
+    expect(initialized.headers.get("access-control-expose-headers")).toContain("mcp-session-id");
+    expect(initialized.headers.get("access-control-expose-headers")).toContain("mcp-protocol-version");
+  });
+
+  it("rejects an unauthenticated request without waiting for its body", async () => {
+    const { baseUrl } = await setup(["https://allowed.example.test"]);
+    const target = new URL(`${baseUrl}/mcp`);
+    let request: ReturnType<typeof httpRequest> | undefined;
+    try {
+      const response = new Promise<number>((resolve, reject) => {
+        request = httpRequest(target, { method: "POST", headers: { origin: "https://allowed.example.test", connection: "close" } }, (res) => {
+          res.resume();
+          res.on("end", () => resolve(res.statusCode ?? 0));
+        });
+        request.on("error", reject);
+        request.write("partial request body");
+      });
+      const timedOut = new Promise<never>((_, reject) => setTimeout(() => reject(new Error("server waited for the request body")), 500));
+      await expect(Promise.race([response, timedOut])).resolves.toBe(401);
+    } finally {
+      request?.end();
+    }
+  });
+
+  it("rejects bodies larger than the configured request limit", async () => {
+    const { baseUrl, issuer } = await setup();
+    const response = await fetch(`${baseUrl}/mcp`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${await issuer.sign()}`, "content-type": "application/json" },
+      body: "x".repeat(1_048_577),
+    });
+    expect(response.status).toBe(413);
+    expect(await response.json()).toMatchObject({ error: "request_too_large" });
+  });
+
+  it("enforces the request limit for chunked bodies too", async () => {
+    const { baseUrl, issuer } = await setup();
+    const target = new URL(`${baseUrl}/mcp`);
+    const token = await issuer.sign();
+    const responsePromise = new Promise<number>((resolve, reject) => {
+      const request = httpRequest(target, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json", connection: "close" },
+      }, (res) => {
+        res.resume();
+        res.on("end", () => resolve(res.statusCode ?? 0));
+      });
+      request.on("error", reject);
+      request.end("x".repeat(1_048_577));
+    });
+    await expect(responsePromise).resolves.toBe(413);
   });
 
   it("serves Protected Resource Metadata", async () => {

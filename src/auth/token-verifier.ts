@@ -15,6 +15,10 @@ export type AccessTokenVerifier = {
 
 type Discovery = { issuer?: unknown; jwks_uri?: unknown };
 
+function isLoopbackHost(hostname: string): boolean {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
+}
+
 export async function createTokenVerifier(config: ServiceConfig): Promise<AccessTokenVerifier> {
   let metadata: Discovery;
   try {
@@ -29,7 +33,7 @@ export async function createTokenVerifier(config: ServiceConfig): Promise<Access
     throw new AuthError("Authorization server metadata does not match configured issuer");
   }
   const jwksUrl = new URL(metadata.jwks_uri);
-  if (jwksUrl.protocol !== "https:" && !(process.env.NODE_ENV === "test" && jwksUrl.protocol === "http:")) {
+  if (jwksUrl.protocol !== "https:" && !(process.env.NODE_ENV === "test" && jwksUrl.protocol === "http:" && isLoopbackHost(jwksUrl.hostname))) {
     throw new AuthError("Authorization server JWKS URL must use HTTPS");
   }
   const jwks = createRemoteJWKSet(jwksUrl);

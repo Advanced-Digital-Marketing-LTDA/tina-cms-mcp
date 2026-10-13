@@ -3,7 +3,7 @@ import { generateKeyPair, exportJWK, SignJWT, type JWK } from "jose";
 
 export async function createTestIssuer(
   discoveryOverrides: Record<string, unknown> = {},
-  options: { trailingSlashIssuer?: boolean; discoveryStatus?: number } = {},
+  options: { trailingSlashIssuer?: boolean; discoveryStatus?: number; issuerPath?: string } = {},
 ) {
   const { privateKey, publicKey } = await generateKeyPair("RS256", { modulusLength: 2048 });
   const jwk = await exportJWK(publicKey);
@@ -11,13 +11,14 @@ export async function createTestIssuer(
   let issuer = "";
   const server: Server = createServer((req, res) => {
     res.setHeader("content-type", "application/json");
-    if (req.url === "/.well-known/openid-configuration") {
+    const issuerPath = options.issuerPath ?? "";
+    if (req.url === `${issuerPath}/.well-known/openid-configuration`) {
       const declaredIssuer = options.trailingSlashIssuer ? `${issuer}/` : issuer;
       res.writeHead(options.discoveryStatus ?? 200);
       res.end(JSON.stringify({ issuer: declaredIssuer, jwks_uri: `${issuer}/jwks`, authorization_endpoint: `${issuer}/authorize`, token_endpoint: `${issuer}/token`, ...discoveryOverrides }));
       return;
     }
-    if (req.url === "/jwks") {
+    if (req.url === `${issuerPath}/jwks`) {
       res.end(JSON.stringify({ keys: [jwk] }));
       return;
     }
@@ -26,7 +27,7 @@ export async function createTestIssuer(
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("test issuer failed to bind");
-  issuer = `http://127.0.0.1:${address.port}`;
+  issuer = `http://127.0.0.1:${address.port}${options.issuerPath ?? ""}`;
   return {
     issuer,
     server,

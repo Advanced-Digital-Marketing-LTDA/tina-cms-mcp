@@ -58,10 +58,30 @@ describe("OAuth access token verification", () => {
     await expect(verifier.verify(await issuer.sign({}, privateKey))).rejects.toThrow("Invalid bearer token");
   });
 
-  it("fails closed when discovery declares another issuer", async () => {
+  it("fails closed when the configured discovery endpoint is unavailable", async () => {
     const issuer = await createTestIssuer();
     issuers.push(issuer);
     await expect(createTokenVerifier({ issuer: `${issuer.issuer}/wrong`, audience: "https://mcp.example.test/mcp", port: 3000, allowedOrigins: [], mcpPath: "/mcp" })).rejects.toThrow("Authorization server discovery failed");
+  });
+
+  it("rejects discovery metadata that declares a different issuer", async () => {
+    const issuer = await createTestIssuer({ issuer: "https://evil.example.test" });
+    issuers.push(issuer);
+    await expect(createTokenVerifier({ issuer: issuer.issuer, audience: "https://mcp.example.test/mcp", port: 3000, allowedOrigins: [], mcpPath: "/mcp" })).rejects.toThrow("Authorization server metadata does not match configured issuer");
+  });
+
+  it("supports OIDC issuer URLs with path components", async () => {
+    const issuer = await createTestIssuer({}, { issuerPath: "/issuer1" });
+    issuers.push(issuer);
+    const verifier = await createTokenVerifier({ issuer: issuer.issuer, audience: "https://mcp.example.test/mcp", port: 3000, allowedOrigins: [], mcpPath: "/mcp" });
+
+    await expect(verifier.verify(await issuer.sign())).resolves.toMatchObject({ subject: "synthetic-user" });
+  });
+
+  it("rejects non-loopback HTTP JWKS URLs even in test mode", async () => {
+    const issuer = await createTestIssuer({ jwks_uri: "http://keys.example.test/jwks" });
+    issuers.push(issuer);
+    await expect(createTokenVerifier({ issuer: issuer.issuer, audience: "https://mcp.example.test/mcp", port: 3000, allowedOrigins: [], mcpPath: "/mcp" })).rejects.toThrow("Authorization server JWKS URL must use HTTPS");
   });
 
   it("fails closed when discovery has no JWKS URI", async () => {

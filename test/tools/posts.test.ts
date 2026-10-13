@@ -97,6 +97,22 @@ describe("post MCP tools", () => {
     });
   });
 
+  it("advertises expectedVersion as required for updates", async () => {
+    const server = createMcpServer(new ProviderRegistry(new InMemoryPostProvider(syntheticPosts)), principal);
+    const client = new Client({ name: "synthetic-schema-client", version: "0.1.0" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    try {
+      const tools = await client.listTools();
+      const update = tools.tools.find((tool) => tool.name === "update_post");
+      expect(update?.inputSchema.required).toContain("expectedVersion");
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
   it("returns CONFLICT when the update version is stale", async () => {
     const result = await callTool(
       new ProviderRegistry(new InMemoryPostProvider(syntheticPosts)),
@@ -180,7 +196,7 @@ describe("post MCP tools", () => {
     expect(result).toMatchObject({ isError: true, structuredContent: { code: "VALIDATION" } });
   });
 
-  it("rejects a missing expected version with a structured VALIDATION error", async () => {
+  it("rejects a missing expected version at the declared tool boundary", async () => {
     const result = await callTool(
       new ProviderRegistry(new InMemoryPostProvider(syntheticPosts)),
       principal,
@@ -188,7 +204,8 @@ describe("post MCP tools", () => {
       { id: "fixture-001", patch: { title: "Update without a version" } },
     );
 
-    expect(result).toMatchObject({ isError: true, structuredContent: { code: "VALIDATION" } });
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toBeUndefined();
   });
 
   it("rejects an empty update patch", async () => {

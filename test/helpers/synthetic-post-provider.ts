@@ -15,7 +15,14 @@ function clonePost(post: PostDocument): PostDocument {
 
 function summarize(post: PostDocument): PostSummary {
   const { bodyMarkdown: _bodyMarkdown, ...summary } = post;
-  return summary;
+  return structuredClone(summary);
+}
+
+function nextVersion(version: string): string {
+  const numeric = Number(version);
+  return Number.isSafeInteger(numeric) && String(numeric) === version
+    ? String(numeric + 1)
+    : `${version}:next`;
 }
 
 function encodeCursor(offset: number): string {
@@ -65,9 +72,13 @@ export class InMemoryPostProvider implements PostProvider {
     }
 
     const now = new Date().toISOString();
+    let id: string;
+    do {
+      id = `synthetic-${this.nextId++}`;
+    } while (this.posts.some((post) => post.id === id));
     const created: PostDocument = {
       ...structuredClone(input),
-      id: `synthetic-${this.nextId++}`,
+      id,
       version: "1",
       status: "draft",
       createdAt: now,
@@ -99,7 +110,7 @@ export class InMemoryPostProvider implements PostProvider {
     const updated: PostDocument = {
       ...current,
       ...structuredClone(patch),
-      version: String(Number(current.version) + 1),
+      version: nextVersion(current.version),
       updatedAt: new Date().toISOString(),
     };
     this.posts[index] = updated;

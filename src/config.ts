@@ -15,6 +15,10 @@ export class ConfigError extends Error {
   }
 }
 
+function isLoopbackHost(hostname: string): boolean {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
+}
+
 function requiredUrl(
   name: string,
   value: string | undefined,
@@ -32,7 +36,7 @@ function requiredUrl(
   }
 
   if (
-    (url.protocol !== "https:" && !(allowHttp && url.protocol === "http:")) ||
+    (url.protocol !== "https:" && !(allowHttp && url.protocol === "http:" && isLoopbackHost(url.hostname))) ||
     url.username.length > 0 ||
     url.password.length > 0 ||
     url.search.length > 0 ||
@@ -59,7 +63,7 @@ function parseOrigins(value: string | undefined, allowHttp: boolean): string[] {
     }
 
     if (
-      (origin.protocol !== "https:" && !(allowHttp && origin.protocol === "http:")) ||
+      (origin.protocol !== "https:" && !(allowHttp && origin.protocol === "http:" && isLoopbackHost(origin.hostname))) ||
       origin.username.length > 0 ||
       origin.password.length > 0 ||
       origin.pathname !== "/" ||
