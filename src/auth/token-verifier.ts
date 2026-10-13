@@ -10,7 +10,7 @@ export class AuthError extends Error {
 }
 
 export type AccessTokenVerifier = {
-  verify(token: string): Promise<{ principal: VerifiedPrincipal; subject: string; scopes: string[]; expiresAt: number; audience: URL }>;
+  verify(token: string): Promise<{ principal: VerifiedPrincipal; subject: string; clientId: string; scopes: string[]; expiresAt: number; audience: URL }>;
 };
 
 type Discovery = { issuer?: unknown; jwks_uri?: unknown };
@@ -57,10 +57,17 @@ export async function createTokenVerifier(config: ServiceConfig): Promise<Access
         if (typeof payload.sub !== "string" || typeof payload.scope !== "string" || typeof payload.exp !== "number") {
           throw new Error("required token claims are missing");
         }
+        const clientId = typeof payload.client_id === "string" && payload.client_id.length > 0
+          ? payload.client_id
+          : typeof payload.azp === "string" && payload.azp.length > 0
+            ? payload.azp
+            : undefined;
+        if (!clientId) throw new Error("OAuth client ID claim is missing");
         const scopes = payload.scope.split(/\s+/).filter(Boolean);
         return {
           principal: { subject: payload.sub, scopes: new Set(scopes) },
           subject: payload.sub,
+          clientId,
           scopes,
           expiresAt: payload.exp,
           audience: new URL(expectedAudience),

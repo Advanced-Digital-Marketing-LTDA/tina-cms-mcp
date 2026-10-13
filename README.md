@@ -29,7 +29,7 @@ The service listens at `/mcp`. TLS should terminate at the later approved hostin
 
 ## Access and tools
 
-The token must use the RS256 algorithm and contain a matching issuer, exact single audience, subject, expiration, and space-delimited OAuth `scope` claim. The four tools are:
+The token must use the RS256 algorithm and contain a matching issuer, exact single audience, subject, expiration, a non-empty OAuth client ID (`client_id`, with `azp` as a fallback), and a space-delimited OAuth `scope` claim. The authenticated principal keeps the user subject separate from the client ID. The four tools are:
 
 - `list_posts` and `get_post` require `posts:read`.
 - `create_post` and `update_post` require `posts:write`.

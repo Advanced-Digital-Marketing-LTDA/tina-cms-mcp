@@ -50,6 +50,15 @@ describe("post MCP tools", () => {
     });
   });
 
+  it.each([
+    ["empty", ""],
+    ["longer than 160 characters", "x".repeat(161)],
+  ])("rejects a %s get-post ID at the declared tool boundary", async (_description, id) => {
+    const result = await callTool(new ProviderRegistry(new InMemoryPostProvider()), principal, "get_post", { id });
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toBeUndefined();
+  });
+
   it("returns NOT_FOUND when the provider has no matching post", async () => {
     const result = await callTool(
       new ProviderRegistry(new InMemoryPostProvider(syntheticPosts)),
@@ -121,6 +130,16 @@ describe("post MCP tools", () => {
       { id: "fixture-001", expectedVersion: "stale", patch: { title: "Must not apply" } },
     );
 
+    expect(result).toMatchObject({ isError: true, structuredContent: { code: "CONFLICT" } });
+  });
+
+  it("returns CONFLICT when an update targets a published post", async () => {
+    const result = await callTool(
+      new ProviderRegistry(new InMemoryPostProvider(syntheticPosts)),
+      principal,
+      "update_post",
+      { id: "fixture-002", expectedVersion: "4", patch: { title: "Must remain published" } },
+    );
     expect(result).toMatchObject({ isError: true, structuredContent: { code: "CONFLICT" } });
   });
 
@@ -221,7 +240,8 @@ describe("post MCP tools", () => {
       { id: "fixture-001", expectedVersion: "1", patch: {} },
     );
 
-    expect(result).toMatchObject({ isError: true, structuredContent: { code: "VALIDATION", message: expect.stringContaining("At least one editable field is required") } });
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toBeUndefined();
   });
 
   it.each(["status", "publishedAt", "updatedAt"])(
@@ -386,6 +406,11 @@ describe("post MCP tools", () => {
       expect(listSchema?.status).toMatchObject({ enum: ["draft", "published", "archived"] });
       expect(listSchema?.limit).toMatchObject({ type: "integer", minimum: 1, maximum: 100 });
       expect(tools.find((tool) => tool.name === "get_post")?.inputSchema.properties).toHaveProperty("id");
+      expect(tools.find((tool) => tool.name === "get_post")?.inputSchema.properties?.id).toMatchObject({
+        type: "string",
+        minLength: 1,
+        maxLength: 160,
+      });
       const createSchema = tools.find((tool) => tool.name === "create_post")?.inputSchema.properties;
       expect(createSchema?.title).toMatchObject({ type: "string", minLength: 1, maxLength: 160 });
       expect(createSchema?.slug).toMatchObject({
@@ -400,14 +425,25 @@ describe("post MCP tools", () => {
       expect((createSchema?.tags as { items?: Record<string, unknown> })?.items).toMatchObject({ maxLength: 40 });
       const updateSchema = tools.find((tool) => tool.name === "update_post")?.inputSchema.properties;
       expect(updateSchema).toHaveProperty("patch");
-      const patchSchema = updateSchema?.patch as { properties?: Record<string, unknown>; additionalProperties?: unknown };
+      const patchSchema = updateSchema?.patch as { properties?: Record<string, unknown>; additionalProperties?: unknown; minProperties?: number };
       expect(Object.keys(patchSchema.properties ?? {}).sort()).toEqual(["bodyMarkdown", "slug", "summary", "tags", "title"]);
       expect(patchSchema.additionalProperties).toBe(false);
+      expect(patchSchema.minProperties).toBe(1);
       expect(patchSchema.properties?.title).toMatchObject({ type: "string", minLength: 1, maxLength: 160 });
       expect(patchSchema.properties?.bodyMarkdown).toMatchObject({ type: "string", maxLength: 100_000 });
     } finally {
       await client.close();
       await server.close();
     }
+  });
+
+  it("reports the provider's supported statuses and safe-write guarantees", () => {
+    const provider = new InMemoryPostProvider();
+    expect(provider.capabilities).toEqual({
+      listStatuses: ["draft", "published", "archived"],
+      supportsDraftCreation: true,
+      supportsDraftOnlyUpdates: true,
+      supportsAtomicDraftUpdates: true,
+    });
   });
 });

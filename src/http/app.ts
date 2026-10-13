@@ -62,7 +62,7 @@ export function createHttpServer(
 ): Server {
   const mcp = createMcpHandler(({ authInfo }) => {
     const principal = {
-      subject: authInfo?.clientId ?? "",
+      subject: typeof authInfo?.extra?.subject === "string" ? authInfo.extra.subject : "",
       scopes: new Set(authInfo?.scopes ?? []),
     };
     return createMcpServer(registry, principal);
@@ -138,7 +138,7 @@ export function createHttpServer(
       const request = toWebRequest(head, nodeReq);
       const authInfo = {
         token: match[1]!,
-        clientId: verified.subject,
+        clientId: verified.clientId,
         scopes: verified.scopes,
         expiresAt: verified.expiresAt,
         resource: verified.audience,

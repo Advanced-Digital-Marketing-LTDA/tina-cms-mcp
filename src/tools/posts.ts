@@ -7,6 +7,7 @@ import type { PostProvider } from "../providers/post-provider.js";
 import { ProviderRegistry } from "../providers/provider-registry.js";
 
 const statusSchema = z.enum(["draft", "published", "archived"]);
+const postIdSchema = z.string().min(1).max(160);
 const titleSchema = z.string().trim().min(1).max(160);
 const slugSchema = z
   .string()
@@ -24,7 +25,7 @@ const listInput = z
     cursor: z.string().min(1).max(512).optional(),
   })
   .strict();
-const getInput = z.object({ id: z.string().min(1).max(160) }).strict();
+const getInput = z.object({ id: postIdSchema }).strict();
 const createInput = z
   .object({
     title: titleSchema,
@@ -41,13 +42,18 @@ const patchFields = {
   summary: summarySchema,
   tags: tagsSchema,
 };
+const updatePatchSchema = z
+  .object(patchFields)
+  .strict()
+  .refine((patch) => Object.keys(patch).length > 0, {
+    message: "At least one editable field is required",
+  })
+  .meta({ minProperties: 1 });
 const updateInput = z
   .object({
-    id: z.string().min(1).max(160),
+    id: postIdSchema,
     expectedVersion: z.string().min(1).max(128),
-    patch: z.object(patchFields).strict().refine((patch) => Object.keys(patch).length > 0, {
-      message: "At least one editable field is required",
-    }),
+    patch: updatePatchSchema,
   })
   .strict();
 
@@ -61,7 +67,7 @@ const listToolSchema = z
     cursor: z.string().min(1).max(512).optional(),
   })
   .passthrough();
-const getToolSchema = z.object({ id: z.string() }).passthrough();
+const getToolSchema = z.object({ id: postIdSchema }).passthrough();
 const createToolSchema = z
   .object({
     title: titleSchema,
@@ -73,9 +79,9 @@ const createToolSchema = z
   .passthrough();
 const updateToolSchema = z
   .object({
-    id: z.string().min(1).max(160),
+    id: postIdSchema,
     expectedVersion: z.string().min(1).max(128).describe("Required concurrency version from a previous read"),
-    patch: z.object(patchFields).strict(),
+    patch: updatePatchSchema,
   })
   .passthrough();
 

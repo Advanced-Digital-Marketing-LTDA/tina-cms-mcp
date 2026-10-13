@@ -43,7 +43,7 @@ export async function createTestIssuer(
     privateKey,
     publicKey,
     async sign(claims: Record<string, unknown> = {}, key = privateKey) {
-      const jwt = new SignJWT({ scope: "posts:read", ...claims })
+      const jwt = new SignJWT({ scope: "posts:read", client_id: "synthetic-client", ...claims })
         .setProtectedHeader({ alg: "RS256", kid: "test-key" });
       if (!("iss" in claims)) jwt.setIssuer(issuer);
       if (!("aud" in claims)) jwt.setAudience("https://mcp.example.test/mcp");

@@ -18,7 +18,16 @@ describe("OAuth access token verification", () => {
     const read = await verifier.verify(await issuer.sign({ scope: "posts:read" }));
     const write = await verifier.verify(await issuer.sign({ scope: "posts:write" }));
     expect(read.principal).toEqual({ subject: "synthetic-user", scopes: new Set(["posts:read"]) });
+    expect(read.clientId).toBe("synthetic-client");
+    expect(read.subject).toBe("synthetic-user");
     expect(write.principal.scopes.has("posts:write")).toBe(true);
+  });
+
+  it("uses azp as the client ID fallback without conflating it with the subject", async () => {
+    const { issuer, verifier } = await setup();
+    const verified = await verifier.verify(await issuer.sign({ client_id: undefined, azp: "synthetic-oidc-client" }));
+    expect(verified.clientId).toBe("synthetic-oidc-client");
+    expect(verified.subject).toBe("synthetic-user");
   });
 
   it("bounds issuer discovery with a ten-second abort signal", async () => {
@@ -62,6 +71,7 @@ describe("OAuth access token verification", () => {
     ["expired", () => ({ exp: 1 })],
     ["not yet valid", () => ({ nbf: Math.floor(Date.now() / 1000) + 3600 })],
     ["missing scope", () => ({ scope: undefined })],
+    ["missing client identity", () => ({ client_id: undefined, azp: undefined })],
     ["missing subject", () => ({ sub: undefined })],
     ["missing expiration", () => ({ exp: undefined })],
   ])("rejects %s", async (_label, claimsFor) => {

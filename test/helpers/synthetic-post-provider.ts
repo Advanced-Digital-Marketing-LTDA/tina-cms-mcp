@@ -39,6 +39,12 @@ function decodeCursor(cursor: string | undefined): number {
 }
 
 export class InMemoryPostProvider implements PostProvider {
+  readonly capabilities = {
+    listStatuses: ["draft", "published", "archived"],
+    supportsDraftCreation: true,
+    supportsDraftOnlyUpdates: true,
+    supportsAtomicDraftUpdates: true,
+  } as const;
   private readonly posts: PostDocument[];
   private nextId = 1;
 
