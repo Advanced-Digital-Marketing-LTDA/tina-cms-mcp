@@ -222,7 +222,7 @@ describe("post MCP tools", () => {
   });
 
   it.each(["status", "publishedAt", "updatedAt"])(
-    "rejects publication metadata field %s in an update patch",
+    "rejects publication metadata field %s at the declared update tool boundary",
     async (field) => {
       const result = await callTool(
         new ProviderRegistry(new InMemoryPostProvider(syntheticPosts)),
@@ -235,7 +235,8 @@ describe("post MCP tools", () => {
         },
       );
 
-      expect(result).toMatchObject({ isError: true, structuredContent: { code: "VALIDATION" } });
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent).toBeUndefined();
     },
   );
 
@@ -382,7 +383,13 @@ describe("post MCP tools", () => {
       expect(listSchema?.limit).toMatchObject({ type: "integer", minimum: 1, maximum: 100 });
       expect(tools.find((tool) => tool.name === "get_post")?.inputSchema.properties).toHaveProperty("id");
       expect(tools.find((tool) => tool.name === "create_post")?.inputSchema.properties).toHaveProperty("bodyMarkdown");
-      expect(tools.find((tool) => tool.name === "update_post")?.inputSchema.properties).toHaveProperty("patch");
+      const updateSchema = tools.find((tool) => tool.name === "update_post")?.inputSchema.properties;
+      expect(updateSchema).toHaveProperty("patch");
+      const patchSchema = updateSchema?.patch as { properties?: Record<string, unknown>; additionalProperties?: unknown };
+      expect(Object.keys(patchSchema.properties ?? {}).sort()).toEqual(["bodyMarkdown", "slug", "summary", "tags", "title"]);
+      expect(patchSchema.additionalProperties).toBe(false);
+      expect(patchSchema.properties?.title).toMatchObject({ type: "string", minLength: 1, maxLength: 160 });
+      expect(patchSchema.properties?.bodyMarkdown).toMatchObject({ type: "string", maxLength: 100_000 });
     } finally {
       await client.close();
       await server.close();
