@@ -64,11 +64,11 @@ const listToolSchema = z
 const getToolSchema = z.object({ id: z.string() }).passthrough();
 const createToolSchema = z
   .object({
-    title: z.string(),
-    slug: z.string(),
-    bodyMarkdown: z.string(),
-    summary: z.string().optional(),
-    tags: z.array(z.string()).optional(),
+    title: titleSchema,
+    slug: slugSchema,
+    bodyMarkdown: bodySchema,
+    summary: summarySchema,
+    tags: tagsSchema,
   })
   .passthrough();
 const updateToolSchema = z

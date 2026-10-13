@@ -26,9 +26,14 @@
     "@stryker-mutator/vitest-runner": "10.0.0",
     "@types/node": "26.6.5",
     "typescript": "^6.0.3",
-    "vitest": "^3.2.7"
+    "vitest": "^4.1.11"
   },
   "overrides": {
+    "@stryker-mutator/core": {
+      "typed-rest-client": {
+        "qs": "6.16.0"
+      }
+    },
     "vitest": {
       "tinypool": "2.1.2"
     }

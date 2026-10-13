@@ -31,7 +31,7 @@ describe("OAuth access token verification", () => {
       expect(timeoutSpy).toHaveBeenCalledWith(10_000);
       expect(fetchSpy).toHaveBeenCalledWith(
         `${issuer.issuer}/.well-known/openid-configuration`,
-        { signal: expect.any(AbortSignal) },
+        { signal: expect.any(AbortSignal), redirect: "error" },
       );
     } finally {
       fetchSpy.mockRestore();
@@ -80,6 +80,25 @@ describe("OAuth access token verification", () => {
     const issuer = await createTestIssuer();
     issuers.push(issuer);
     await expect(createTokenVerifier({ issuer: `${issuer.issuer}/wrong`, audience: "https://mcp.example.test/mcp", port: 3000, allowedOrigins: [], mcpPath: "/mcp" })).rejects.toThrow("Authorization server discovery failed");
+  });
+
+  it("rejects a discovery redirect instead of trusting redirected metadata", async () => {
+    const discoveryRedirect: { target?: string } = {};
+    const issuer = await createTestIssuer({}, { discoveryRedirect });
+    issuers.push(issuer);
+    const redirectedIssuer = await createTestIssuer(
+      { issuer: issuer.issuer },
+    );
+    issuers.push(redirectedIssuer);
+    discoveryRedirect.target = `${redirectedIssuer.issuer}/.well-known/openid-configuration`;
+
+    await expect(createTokenVerifier({
+      issuer: issuer.issuer,
+      audience: "https://mcp.example.test/mcp",
+      port: 3000,
+      allowedOrigins: [],
+      mcpPath: "/mcp",
+    })).rejects.toThrow("Authorization server discovery failed");
   });
 
   it("rejects discovery metadata that declares a different issuer", async () => {

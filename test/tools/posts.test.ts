@@ -136,7 +136,7 @@ describe("post MCP tools", () => {
     expect(result.content[0]).toMatchObject({ text: expect.stringContaining("VALIDATION:") });
   });
 
-  it("rejects invalid slugs with a structured VALIDATION error", async () => {
+  it("rejects invalid slugs at the declared tool boundary", async () => {
     const result = await callTool(
       new ProviderRegistry(new InMemoryPostProvider(syntheticPosts)),
       principal,
@@ -144,7 +144,8 @@ describe("post MCP tools", () => {
       { title: "Bad slug", slug: "Not a slug", bodyMarkdown: "Synthetic." },
     );
 
-    expect(result).toMatchObject({ isError: true, structuredContent: { code: "VALIDATION", message: expect.stringContaining("slug") } });
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toBeUndefined();
   });
 
   it.each([
@@ -160,7 +161,8 @@ describe("post MCP tools", () => {
       args,
     );
 
-    expect(result).toMatchObject({ isError: true, structuredContent: { code: "VALIDATION" } });
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toBeUndefined();
   });
 
   it("rejects bodies that exceed the content limit", async () => {
@@ -171,7 +173,8 @@ describe("post MCP tools", () => {
       { title: "Large body", slug: "large-body", bodyMarkdown: "x".repeat(100_001) },
     );
 
-    expect(result).toMatchObject({ isError: true, structuredContent: { code: "VALIDATION" } });
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toBeUndefined();
   });
 
   it("rejects list limits outside 1 through 100 at the declared tool boundary", async () => {
@@ -361,7 +364,8 @@ describe("post MCP tools", () => {
     const result = await callTool(new ProviderRegistry(new InMemoryPostProvider()), principal, "create_post", {
       title: "Bad suffix", slug: "valid-prefix!", bodyMarkdown: "Synthetic.",
     });
-    expect(result).toMatchObject({ isError: true, structuredContent: { code: "VALIDATION" } });
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toBeUndefined();
   });
 
   it("publishes four documented JSON schemas with no publication tool", async () => {
@@ -382,7 +386,18 @@ describe("post MCP tools", () => {
       expect(listSchema?.status).toMatchObject({ enum: ["draft", "published", "archived"] });
       expect(listSchema?.limit).toMatchObject({ type: "integer", minimum: 1, maximum: 100 });
       expect(tools.find((tool) => tool.name === "get_post")?.inputSchema.properties).toHaveProperty("id");
-      expect(tools.find((tool) => tool.name === "create_post")?.inputSchema.properties).toHaveProperty("bodyMarkdown");
+      const createSchema = tools.find((tool) => tool.name === "create_post")?.inputSchema.properties;
+      expect(createSchema?.title).toMatchObject({ type: "string", minLength: 1, maxLength: 160 });
+      expect(createSchema?.slug).toMatchObject({
+        type: "string",
+        minLength: 1,
+        maxLength: 120,
+        pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+      });
+      expect(createSchema?.bodyMarkdown).toMatchObject({ type: "string", maxLength: 100_000 });
+      expect(createSchema?.summary).toMatchObject({ type: "string", maxLength: 300 });
+      expect(createSchema?.tags).toMatchObject({ type: "array", maxItems: 20 });
+      expect((createSchema?.tags as { items?: Record<string, unknown> })?.items).toMatchObject({ maxLength: 40 });
       const updateSchema = tools.find((tool) => tool.name === "update_post")?.inputSchema.properties;
       expect(updateSchema).toHaveProperty("patch");
       const patchSchema = updateSchema?.patch as { properties?: Record<string, unknown>; additionalProperties?: unknown };

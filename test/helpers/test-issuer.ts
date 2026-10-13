@@ -3,7 +3,12 @@ import { generateKeyPair, exportJWK, SignJWT, type JWK } from "jose";
 
 export async function createTestIssuer(
   discoveryOverrides: Record<string, unknown> = {},
-  options: { trailingSlashIssuer?: boolean; discoveryStatus?: number; issuerPath?: string } = {},
+  options: {
+    trailingSlashIssuer?: boolean;
+    discoveryStatus?: number;
+    issuerPath?: string;
+    discoveryRedirect?: { target?: string };
+  } = {},
 ) {
   const { privateKey, publicKey } = await generateKeyPair("RS256", { modulusLength: 2048 });
   const jwk = await exportJWK(publicKey);
@@ -13,6 +18,10 @@ export async function createTestIssuer(
     res.setHeader("content-type", "application/json");
     const issuerPath = options.issuerPath ?? "";
     if (req.url === `${issuerPath}/.well-known/openid-configuration`) {
+      if (options.discoveryRedirect?.target) {
+        res.writeHead(302, { location: options.discoveryRedirect.target }).end();
+        return;
+      }
       const declaredIssuer = options.trailingSlashIssuer ? `${issuer}/` : issuer;
       res.writeHead(options.discoveryStatus ?? 200);
       res.end(JSON.stringify({ issuer: declaredIssuer, jwks_uri: `${issuer}/jwks`, authorization_endpoint: `${issuer}/authorize`, token_endpoint: `${issuer}/token`, ...discoveryOverrides }));
