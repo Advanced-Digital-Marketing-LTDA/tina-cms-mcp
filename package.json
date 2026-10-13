@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Standalone MCP service foundation for content management",
   "type": "module",
-  "private": false,
+  "private": true,
   "engines": {
     "node": ">=24"
   },

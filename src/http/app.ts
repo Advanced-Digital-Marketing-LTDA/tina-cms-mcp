@@ -150,6 +150,10 @@ export function createHttpServer(
       }
       await writeResponse(nodeRes, result);
     } catch (error) {
+      if (nodeRes.headersSent) {
+        nodeRes.destroy();
+        return;
+      }
       const status = error instanceof RequestBodyTooLargeError ? 413 : 500;
       await writeResponse(nodeRes, json(status, { error: status === 413 ? "request_too_large" : "internal_error" }, corsHeaders));
     }

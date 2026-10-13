@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { generateKeyPair } from "jose";
 import { AuthError, createTokenVerifier } from "../../src/auth/token-verifier.js";
 import { createTestIssuer } from "../helpers/test-issuer.js";
@@ -19,6 +19,24 @@ describe("OAuth access token verification", () => {
     const write = await verifier.verify(await issuer.sign({ scope: "posts:write" }));
     expect(read.principal).toEqual({ subject: "synthetic-user", scopes: new Set(["posts:read"]) });
     expect(write.principal.scopes.has("posts:write")).toBe(true);
+  });
+
+  it("bounds issuer discovery with a ten-second abort signal", async () => {
+    const issuer = await createTestIssuer();
+    issuers.push(issuer);
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout");
+    try {
+      await createTokenVerifier({ issuer: issuer.issuer, audience: "https://mcp.example.test/mcp", port: 3000, allowedOrigins: [], mcpPath: "/mcp" });
+      expect(timeoutSpy).toHaveBeenCalledWith(10_000);
+      expect(fetchSpy).toHaveBeenCalledWith(
+        `${issuer.issuer}/.well-known/openid-configuration`,
+        { signal: expect.any(AbortSignal) },
+      );
+    } finally {
+      fetchSpy.mockRestore();
+      timeoutSpy.mockRestore();
+    }
   });
 
   it("supports an issuer identifier with a trailing slash exactly as published", async () => {
