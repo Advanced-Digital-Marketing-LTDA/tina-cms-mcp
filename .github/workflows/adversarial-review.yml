@@ -1,0 +1,20 @@
+name: Adversarial review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: adversarial-review-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  adversarial-review:
+    # Langlo main, merge of PR 42; tools-ref must be the same commit
+    uses: Advanced-Digital-Marketing-LTDA/Langlo/.github/workflows/reusable-adversarial-review.yml@9a946fb019ef1108cd461c1682cd4515a0244683
+    with:
+      tools-ref: 9a946fb019ef1108cd461c1682cd4515a0244683
+    secrets: inherit

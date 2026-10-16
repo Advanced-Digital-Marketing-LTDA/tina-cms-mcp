@@ -1,0 +1,21 @@
+name: Claude review
+
+on:
+  pull_request:
+    types: [ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: claude-review-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  claude-review:
+    permissions:
+      contents: read
+      pull-requests: write
+    # Langlo main, merge of PR 42
+    uses: Advanced-Digital-Marketing-LTDA/Langlo/.github/workflows/reusable-claude-review.yml@9a946fb019ef1108cd461c1682cd4515a0244683
+    secrets: inherit
