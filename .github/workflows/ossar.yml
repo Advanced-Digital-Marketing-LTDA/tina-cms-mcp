@@ -18,4 +18,4 @@ jobs:
       security-events: write
       actions: read
     # Langlo PR 43, ESLint-free OSSAR
-    uses: Advanced-Digital-Marketing-LTDA/Langlo/.github/workflows/reusable-ossar.yml@a03c8ef33e9bb731c1e54bf5105ea17d4e272d0a
+    uses: Advanced-Digital-Marketing-LTDA/Langlo/.github/workflows/reusable-ossar.yml@9bdac7d1f488c74586527114ec26cc83a902eb77
