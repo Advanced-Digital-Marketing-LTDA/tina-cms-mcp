@@ -52,3 +52,10 @@ npm run mutation
 ```
 
 The test suite uses locally generated RSA keys and local synthetic HTTP issuer endpoints. It does not call an external OAuth service. StrykerJS enforces an 80% mutation score threshold for configuration, domain, provider, auth, and tool code.
+
+## License
+
+Tina CMS MCP is licensed under the [PolyForm Shield License 1.0.0](LICENSE).
+Commercial use is permitted when it complies with that license. For uses not
+permitted by PolyForm Shield, see [commercial licensing](COMMERCIAL.md).
+Third-party components keep their own licenses.
