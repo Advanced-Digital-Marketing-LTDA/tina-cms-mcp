@@ -4,6 +4,7 @@
   "description": "Standalone MCP service foundation for content management",
   "type": "module",
   "private": true,
+  "license": "SEE LICENSE IN LICENSE",
   "engines": {
     "node": ">=24"
   },
